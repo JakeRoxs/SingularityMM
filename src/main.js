@@ -14,6 +14,9 @@ import iconGog from './assets/icon-gog.png';
 import iconXbox from './assets/icon-xbox.png';
 import iconNexus from './assets/icon-nexus.png';
 
+// --- IMPORT GAMEPAD ---
+import { GamepadManager } from './gamepad.js';
+
 // Get the window instance for listener attachment
 const appWindow = getCurrentWindow();
 
@@ -172,7 +175,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- GLOBAL HOTKEYS & INPUT HANDLING ---
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
-      e.preventDefault();
+      // Allow Tab for accessibility/gamepad; prevent only if no gamepad and not needed
+      if (gamepad.inputMode !== 'gamepad') {
+        e.preventDefault();
+      }
       return;
     }
 
@@ -4927,6 +4933,99 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error(e);
     }
   });
+
+  // --- GAMEPAD / STEAM DECK CONTROLLER SUPPORT ---
+  const gamepad = new GamepadManager();
+  gamepad.init();
+
+  // Define navigable sections for My Mods and Browse views
+  const updateGamepadSections = () => {
+    const isMyMods = !myModsView.classList.contains('hidden');
+    const isBrowse = !browseView.classList.contains('hidden');
+
+    const sections = [];
+
+    if (isMyMods) {
+      sections.push(
+        { id: 'header', selector: '.nav-button, .header-button, #downloadHistoryBtn, #settingsBtn', container: 'header', promptKey: 'mods' },
+        { id: 'top-panel', selector: '#disableAllSwitch, #enableAllBtn, #disableAllBtn, #loadFileBtn, #openModsFolderBtn', container: '.top-panel', promptKey: 'mods' },
+        { id: 'mod-list', selector: '.mod-row', container: '#modListContainer', promptKey: 'mods' },
+        { id: 'footer', selector: '#profileSelect, #applyProfileBtn:not(.hidden), .profile-btn, .profile-manage-btn, #launchGameBtn', container: '.footer-container', promptKey: 'mods' },
+      );
+    }
+
+    if (isBrowse) {
+      sections.push(
+        { id: 'header', selector: '.nav-button, .header-button, #downloadHistoryBtn, #settingsBtn', container: 'header', promptKey: 'browse' },
+        { id: 'browse-controls', selector: '#browseSearchInput, #browseFilterSelect, #browseSortSelect', container: '.browse-controls', promptKey: 'browse' },
+        { id: 'browse-grid', selector: '.mod-card', container: '#browseGridContainer', promptKey: 'browse' },
+        { id: 'browse-pagination', selector: '.page-btn', container: '#paginationContainer', promptKey: 'browse' },
+      );
+    }
+
+    gamepad.setSections(sections);
+  };
+
+  // Update sections when switching views
+  navMyMods.addEventListener('click', () => setTimeout(updateGamepadSections, 50));
+  navBrowse.addEventListener('click', () => setTimeout(updateGamepadSections, 50));
+
+  // Gamepad events
+  window.addEventListener('gamepad-back', () => {
+    // Reuse existing Escape key logic
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    window.dispatchEvent(event);
+  });
+
+  window.addEventListener('gamepad-launch', () => {
+    const launchBtn = document.getElementById('launchGameBtn');
+    if (launchBtn && !launchBtn.classList.contains('disabled')) {
+      launchBtn.click();
+    }
+  });
+
+  window.addEventListener('gamepad-navigate-horizontal', (e) => {
+    // If focused on a mod row, toggle the enabled switch
+    const focused = gamepad.focusedElement;
+    if (focused && focused.classList.contains('mod-row')) {
+      const toggle = focused.querySelector('.enabled-switch input[type="checkbox"]');
+      if (toggle) toggle.click();
+    }
+  });
+
+  // Watch for modal open/close to trap focus
+  const modalObserver = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+      const el = m.target;
+      if (!el.classList.contains('modal-overlay') && !el.classList.contains('mod-detail-panel')) continue;
+
+      const wasHidden = m.oldValue?.includes('hidden');
+      const isHidden = el.classList.contains('hidden');
+      const wasOpen = m.oldValue?.includes('open');
+      const isOpen = el.classList.contains('open');
+
+      // Modal opened
+      if ((wasHidden && !isHidden) || (!wasOpen && isOpen)) {
+        gamepad.pushModalFocus(
+          `#${el.id}`,
+          'button, input, select, .modal-btn-confirm, .modal-btn-cancel, .modal-gen-btn-confirm, .modal-gen-btn-cancel, .mp-btn, .mp-action-btn, .download-item'
+        );
+      }
+      // Modal closed
+      if ((!wasHidden && isHidden) || (wasOpen && !isOpen)) {
+        gamepad.popModalFocus();
+      }
+    }
+  });
+
+  // Observe all modal overlays and the detail panel
+  document.querySelectorAll('.modal-overlay, .mod-detail-panel').forEach(el => {
+    modalObserver.observe(el, { attributes: true, attributeOldValue: true, attributeFilter: ['class'] });
+  });
+
+  // Initial section setup (deferred to after DOM is ready)
+  setTimeout(updateGamepadSections, 100);
 
   (async () => {
     try {
