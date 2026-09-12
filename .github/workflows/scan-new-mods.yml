@@ -2,7 +2,7 @@ name: Scan for new NMS mods
 
 on:
   schedule:
-    # Every Monday at 09:00 UTC. Adjust as you like.
+    # Every Monday at 09:00 UTC.
     - cron: '0 9 * * 1'
   workflow_dispatch:
     inputs:
@@ -23,15 +23,11 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      # data branch checked out at the workspace root - this is what gets
-      # read, updated, and committed back.
       - name: Checkout data branch
         uses: actions/checkout@v6
         with:
           ref: data
 
-      # main only needed for the script itself, so pull it into a
-      # subfolder with a sparse checkout rather than the whole repo.
       - name: Checkout main branch for script
         uses: actions/checkout@v6
         with:
