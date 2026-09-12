@@ -97,7 +97,7 @@ async function main() {
       await writeFile(
         process.env.GITHUB_STEP_SUMMARY,
         `### ⚠️ Blacklisted mods still in \`${MOD_WARNINGS_PATH}\`\n\n` +
-        `These weren't removed automatically — remove them by hand if you want them out:\n\n` +
+        `These weren't removed automatically — remove them:\n\n` +
         `${blacklistList}\n`,
         { flag: 'a' }
       );
