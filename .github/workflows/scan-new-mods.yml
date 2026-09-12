@@ -23,41 +23,37 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      # Workflow + script live on main
-      - name: Checkout main (script)
-        uses: actions/checkout@v5
-        with:
-          ref: main
-          path: main
-
-      # mod_warnings.json lives on the "data" branch
-      - name: Checkout data (mod cache)
-        uses: actions/checkout@v5
+      # data branch checked out at the workspace root - this is what gets
+      # read, updated, and committed back.
+      - name: Checkout data branch
+        uses: actions/checkout@v6
         with:
           ref: data
-          path: data
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      # main only needed for the script itself, so pull it into a
+      # subfolder with a sparse checkout rather than the whole repo.
+      - name: Checkout main branch for script
+        uses: actions/checkout@v6
         with:
-          node-version: '22'
+          ref: main
+          path: ./.github/main-branch-checkout
+          sparse-checkout: |
+            scripts
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
 
       - name: Scan Nexus for new mods
         env:
           NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
           PERIOD: ${{ inputs.period || '1m' }}
-          MOD_WARNINGS_PATH: data/mod_warnings.json
-        run: node main/scripts/scan-new-mods.cjs
+          MOD_WARNINGS_PATH: mod_warnings.json
+        run: node ./.github/main-branch-checkout/scripts/scan-new-mods.cjs
 
-      - name: Commit changes to data branch if any
-        working-directory: data
-        run: |
-          if git diff --quiet -- mod_warnings.json; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add mod_warnings.json
-          git commit -m "chore: add newly discovered NMS mods [skip ci]"
-          git push origin HEAD:data
+      - name: Commit and push changes to the data branch
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "chore: add newly discovered NMS mods"
+          file_pattern: mod_warnings.json
