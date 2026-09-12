@@ -25,22 +25,22 @@ jobs:
     steps:
       # Workflow + script live on main
       - name: Checkout main (script)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           path: main
 
-      # mod_warnings.json lives on Data
-      - name: Checkout Data (mod cache)
-        uses: actions/checkout@v4
+      # mod_warnings.json lives on the "data" branch
+      - name: Checkout data (mod cache)
+        uses: actions/checkout@v5
         with:
-          ref: Data
+          ref: data
           path: data
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Scan Nexus for new mods
         env:
@@ -49,7 +49,7 @@ jobs:
           MOD_WARNINGS_PATH: data/mod_warnings.json
         run: node main/scripts/scan-new-mods.cjs
 
-      - name: Commit changes to Data branch if any
+      - name: Commit changes to data branch if any
         working-directory: data
         run: |
           if git diff --quiet -- mod_warnings.json; then
@@ -60,4 +60,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add mod_warnings.json
           git commit -m "chore: add newly discovered NMS mods [skip ci]"
-          git push origin HEAD:Data
+          git push origin HEAD:data
