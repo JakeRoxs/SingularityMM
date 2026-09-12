@@ -1,16 +1,6 @@
 #!/usr/bin/env node
 /**
- * Scans Nexus Mods for No Man's Sky mods that are genuinely new (created in
- * the lookback window, status = published) and not already present in
- * mod_warnings.json. Appends them to the bottom of that file, oldest-new
- * first, in the same shape as the rest of the list.
- *
- * Required env:
- *   NEXUS_API_KEY   - your Nexus Mods personal API key
- * Optional env:
- *   MOD_WARNINGS_PATH - path to the cache file (default: mod_warnings.json)
- *   PERIOD             - '1d' | '1w' | '1m' (default: '1m')
- *   GAME_DOMAIN         - Nexus game domain slug (default: 'nomanssky')
+ * Scans Nexus Mods for No Man's Sky mods that are new
  */
 
 const { readFile, writeFile } = require('node:fs/promises');
@@ -18,6 +8,7 @@ const { existsSync } = require('node:fs');
 
 const API_KEY = process.env.NEXUS_API_KEY;
 const MOD_WARNINGS_PATH = process.env.MOD_WARNINGS_PATH || 'mod_warnings.json';
+const BLACKLIST_PATH = process.env.BLACKLIST_PATH || 'mod_blacklist.json';
 const PERIOD = process.env.PERIOD || '1m'; // 1d | 1w | 1m
 const GAME_DOMAIN = process.env.GAME_DOMAIN || 'nomanssky';
 const DETAIL_FETCH_DELAY_MS = 300;
@@ -38,7 +29,6 @@ function fail(msg) {
 }
 
 async function nexusGet(url) {
-  // Node 18+ has a global fetch, available in CommonJS too - no extra dependency needed.
   const res = await fetch(url, {
     headers: { apikey: API_KEY, Accept: 'application/json' }
   });
@@ -64,12 +54,34 @@ async function loadCache(path) {
   return data;
 }
 
+async function loadBlacklist(path) {
+  if (!existsSync(path)) {
+    console.log(`No blacklist file at ${path} — nothing will be excluded on that basis.`);
+    return new Set();
+  }
+  const raw = await readFile(path, 'utf-8');
+  if (!raw.trim()) return new Set();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    fail(`${path} is not valid JSON: ${e.message}`);
+  }
+  if (!Array.isArray(data)) {
+    fail(`${path} must contain a JSON array of mod IDs, e.g. ["1234", "5678"].`);
+  }
+  return new Set(data.map((id) => String(id)));
+}
+
 async function main() {
   if (!API_KEY) fail('NEXUS_API_KEY is not set.');
 
   const cache = await loadCache(MOD_WARNINGS_PATH);
   const cacheIds = new Set(cache.filter((m) => m && m.id !== undefined).map((m) => String(m.id)));
   console.log(`Loaded ${cache.length} mods from ${MOD_WARNINGS_PATH} (${cacheIds.size} usable IDs).`);
+
+  const blacklist = await loadBlacklist(BLACKLIST_PATH);
+  console.log(`Loaded ${blacklist.size} blacklisted mod ID(s) from ${BLACKLIST_PATH}.`);
 
   console.log(`Requesting ${GAME_DOMAIN} mod activity for period=${PERIOD}...`);
   const listRes = await nexusGet(UPDATED_URL);
@@ -80,8 +92,14 @@ async function main() {
   const activity = await listRes.json();
   console.log(`${activity.length} mods had activity in the last ${PERIOD}.`);
 
-  const candidates = activity.filter((m) => m && m.mod_id !== undefined && !cacheIds.has(String(m.mod_id)));
-  console.log(`${candidates.length} of those aren't already in the cache.`);
+  const skippedBlacklist = activity.filter(
+    (m) => m && m.mod_id !== undefined && blacklist.has(String(m.mod_id))
+  ).length;
+
+  const candidates = activity.filter(
+    (m) => m && m.mod_id !== undefined && !cacheIds.has(String(m.mod_id)) && !blacklist.has(String(m.mod_id))
+  );
+  console.log(`${candidates.length} of those aren't already cached or blacklisted (${skippedBlacklist} blacklisted).`);
 
   const cutoff = Date.now() / 1000 - (PERIOD_SECONDS[PERIOD] || PERIOD_SECONDS['1m']);
   const newEntries = [];
@@ -114,7 +132,7 @@ async function main() {
           id: String(m.mod_id),
           state: 'normal',
           warningMessage: '',
-          _created: createdAt // stripped before writing, used only to sort
+          _created: createdAt
         });
       }
     } catch (e) {
@@ -130,6 +148,7 @@ async function main() {
     `Result: ${newEntries.length} genuinely new & published, ` +
     `${skippedOld} were edits to older mods, ` +
     `${skippedStatus} were removed/hidden/unpublished, ` +
+    `${skippedBlacklist} were blacklisted, ` +
     `${skippedError} couldn't be checked.`
   );
 
