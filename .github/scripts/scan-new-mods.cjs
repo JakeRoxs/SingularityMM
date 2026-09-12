@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/**
+/*
  * Scans Nexus Mods for No Man's Sky mods that are new
  */
 
@@ -82,6 +82,27 @@ async function main() {
 
   const blacklist = await loadBlacklist(BLACKLIST_PATH);
   console.log(`Loaded ${blacklist.size} blacklisted mod ID(s) from ${BLACKLIST_PATH}.`);
+
+  const blacklistedButCached = cache.filter((m) => m && m.id !== undefined && blacklist.has(String(m.id)));
+  if (blacklistedButCached.length > 0) {
+    console.log(
+      `\n⚠️  ${blacklistedButCached.length} mod(s) already in ${MOD_WARNINGS_PATH} are on the blacklist ` +
+      `but were NOT removed automatically:`
+    );
+    blacklistedButCached.forEach((m) => console.log(`   - ${m.name} (${m.id})`));
+    console.log('   Remove these manually if you want them out of the list.\n');
+
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const blacklistList = blacklistedButCached.map((m) => `- **${m.name}** (\`${m.id}\`)`).join('\n');
+      await writeFile(
+        process.env.GITHUB_STEP_SUMMARY,
+        `### ⚠️ Blacklisted mods still in \`${MOD_WARNINGS_PATH}\`\n\n` +
+        `These weren't removed automatically — remove them by hand if you want them out:\n\n` +
+        `${blacklistList}\n`,
+        { flag: 'a' }
+      );
+    }
+  }
 
   console.log(`Requesting ${GAME_DOMAIN} mod activity for period=${PERIOD}...`);
   const listRes = await nexusGet(UPDATED_URL);
