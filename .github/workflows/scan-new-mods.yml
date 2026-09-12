@@ -38,7 +38,7 @@ jobs:
           ref: main
           path: ./.github/main-branch-checkout
           sparse-checkout: |
-            scripts
+            .github/scripts
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -50,7 +50,8 @@ jobs:
           NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
           PERIOD: ${{ inputs.period || '1m' }}
           MOD_WARNINGS_PATH: mod_warnings.json
-        run: node ./.github/main-branch-checkout/scripts/scan-new-mods.cjs
+          BLACKLIST_PATH: mod_blacklist.json
+        run: node ./.github/main-branch-checkout/.github/scripts/scan-new-mods.cjs
 
       - name: Commit and push changes to the data branch
         uses: stefanzweifel/git-auto-commit-action@v7
