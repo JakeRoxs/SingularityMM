@@ -1,0 +1,63 @@
+name: Scan for new NMS mods
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC. Adjust as you like.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      period:
+        description: 'Lookback window'
+        required: false
+        default: '1m'
+        type: choice
+        options:
+          - 1d
+          - 1w
+          - 1m
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      # Workflow + script live on main
+      - name: Checkout main (script)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      # mod_warnings.json lives on Data
+      - name: Checkout Data (mod cache)
+        uses: actions/checkout@v4
+        with:
+          ref: Data
+          path: data
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Scan Nexus for new mods
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+          PERIOD: ${{ inputs.period || '1m' }}
+          MOD_WARNINGS_PATH: data/mod_warnings.json
+        run: node main/scripts/scan-new-mods.cjs
+
+      - name: Commit changes to Data branch if any
+        working-directory: data
+        run: |
+          if git diff --quiet -- mod_warnings.json; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add mod_warnings.json
+          git commit -m "chore: add newly discovered NMS mods [skip ci]"
+          git push origin HEAD:Data
