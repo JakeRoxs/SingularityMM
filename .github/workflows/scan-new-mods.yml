@@ -45,7 +45,7 @@ jobs:
         env:
           NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
           PERIOD: ${{ inputs.period || '1m' }}
-          MOD_WARNINGS_PATH: mod_warnings.json
+          MOD_SOURCE_PATH: mod_source.json
           BLACKLIST_PATH: mod_blacklist.json
         run: node ./.github/main-branch-checkout/.github/scripts/scan-new-mods.cjs
 
@@ -53,4 +53,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore: add newly discovered NMS mods"
-          file_pattern: mod_warnings.json
+          file_pattern: mod_source.json
