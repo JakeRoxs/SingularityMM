@@ -7,7 +7,7 @@ const { readFile, writeFile } = require('node:fs/promises');
 const { existsSync } = require('node:fs');
 
 const API_KEY = process.env.NEXUS_API_KEY;
-const MOD_WARNINGS_PATH = process.env.MOD_WARNINGS_PATH || 'mod_warnings.json';
+const MOD_SOURCE_PATH = process.env.MOD_SOURCE_PATH || 'mod_source.json';
 const BLACKLIST_PATH = process.env.BLACKLIST_PATH || 'mod_blacklist.json';
 const PERIOD = process.env.PERIOD || '1m'; // 1d | 1w | 1m
 const GAME_DOMAIN = process.env.GAME_DOMAIN || 'nomanssky';
@@ -76,9 +76,9 @@ async function loadBlacklist(path) {
 async function main() {
   if (!API_KEY) fail('NEXUS_API_KEY is not set.');
 
-  const cache = await loadCache(MOD_WARNINGS_PATH);
+  const cache = await loadCache(MOD_SOURCE_PATH);
   const cacheIds = new Set(cache.filter((m) => m && m.id !== undefined).map((m) => String(m.id)));
-  console.log(`Loaded ${cache.length} mods from ${MOD_WARNINGS_PATH} (${cacheIds.size} usable IDs).`);
+  console.log(`Loaded ${cache.length} mods from ${MOD_SOURCE_PATH} (${cacheIds.size} usable IDs).`);
 
   const blacklist = await loadBlacklist(BLACKLIST_PATH);
   console.log(`Loaded ${blacklist.size} blacklisted mod ID(s) from ${BLACKLIST_PATH}.`);
@@ -86,7 +86,7 @@ async function main() {
   const blacklistedButCached = cache.filter((m) => m && m.id !== undefined && blacklist.has(String(m.id)));
   if (blacklistedButCached.length > 0) {
     console.log(
-      `\n⚠️  ${blacklistedButCached.length} mod(s) already in ${MOD_WARNINGS_PATH} are on the blacklist ` +
+      `\n⚠️  ${blacklistedButCached.length} mod(s) already in ${MOD_SOURCE_PATH} are on the blacklist ` +
       `but were NOT removed automatically:`
     );
     blacklistedButCached.forEach((m) => console.log(`   - ${m.name} (${m.id})`));
@@ -96,7 +96,7 @@ async function main() {
       const blacklistList = blacklistedButCached.map((m) => `- **${m.name}** (\`${m.id}\`)`).join('\n');
       await writeFile(
         process.env.GITHUB_STEP_SUMMARY,
-        `### ⚠️ Blacklisted mods still in \`${MOD_WARNINGS_PATH}\`\n\n` +
+        `### ⚠️ Blacklisted mods still in \`${MOD_SOURCE_PATH}\`\n\n` +
         `These weren't removed automatically — remove them:\n\n` +
         `${blacklistList}\n`,
         { flag: 'a' }
@@ -174,7 +174,7 @@ async function main() {
   );
 
   if (newEntries.length === 0) {
-    console.log('Nothing new to add. Leaving mod_warnings.json untouched.');
+    console.log('Nothing new to add. Leaving mod_source.json untouched.');
     return;
   }
 
@@ -183,8 +183,8 @@ async function main() {
   newEntries.forEach((e) => delete e._created);
 
   const updated = [...cache, ...newEntries];
-  await writeFile(MOD_WARNINGS_PATH, JSON.stringify(updated, null, 4) + '\n', 'utf-8');
-  console.log(`Wrote ${updated.length} total mods to ${MOD_WARNINGS_PATH} (${newEntries.length} appended).`);
+  await writeFile(MOD_SOURCE_PATH, JSON.stringify(updated, null, 4) + '\n', 'utf-8');
+  console.log(`Wrote ${updated.length} total mods to ${MOD_SOURCE_PATH} (${newEntries.length} appended).`);
 
   // Surface a readable summary in the Actions run (and in the job summary, if available).
   const list = newEntries.map((e) => `- **${e.name}** (\`${e.id}\`)`).join('\n');
@@ -192,7 +192,7 @@ async function main() {
   if (process.env.GITHUB_STEP_SUMMARY) {
     await writeFile(
       process.env.GITHUB_STEP_SUMMARY,
-      `### New mods added to \`${MOD_WARNINGS_PATH}\`\n\n${list}\n`,
+      `### New mods added to \`${MOD_SOURCE_PATH}\`\n\n${list}\n`,
       { flag: 'a' }
     );
   }
