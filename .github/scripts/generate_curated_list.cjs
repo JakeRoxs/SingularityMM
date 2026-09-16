@@ -5,7 +5,7 @@ const path = require('path');
 const NEXUS_API_KEY = process.env.NEXUS_API_KEY;
 if (!NEXUS_API_KEY) throw new Error("NEXUS_API_KEY environment variable not set!");
 
-const WARNINGS_FILE_PATH = path.join(process.cwd(), 'mod_warnings.json');
+const SOURCE_FILE_PATH = path.join(process.cwd(), 'mod_source.json');
 const OUTPUT_FILE_PATH = path.join(process.cwd(), 'curated', 'curated_list.json');
 const UPDATE_PERIOD = '1d';
 const BATCH_SIZE = 5;
@@ -67,13 +67,30 @@ async function fetchModChangelogsFromNexus(modId) {
   }
 }
 
+// --- GITHUB ACTIONS SUMMARY ---
+
+/**
+ * Appends markdown to the GitHub Actions run summary (the panel shown directly
+ * under the workflow run, rather than buried in the step logs).
+ * Silently does nothing when run locally, where GITHUB_STEP_SUMMARY is unset.
+ */
+async function writeStepSummary(markdown) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  try {
+    await fs.appendFile(summaryPath, markdown, 'utf8');
+  } catch (e) {
+    console.log(`Could not write step summary: ${e.message}`);
+  }
+}
+
 // --- MAIN LOGIC ---
 
 async function buildCuratedList() {
   console.log("Starting Optimized Smart Update (Safe Mode)...");
 
   // 1. Load Inputs
-  const warningsContent = await fs.readFile(WARNINGS_FILE_PATH, 'utf8');
+  const warningsContent = await fs.readFile(SOURCE_FILE_PATH, 'utf8');
   let modsToProcess = JSON.parse(warningsContent);
 
   // Filter empty IDs just in case
@@ -106,6 +123,8 @@ async function buildCuratedList() {
   const finalResults = [];
   // Array to store IDs that fail verification
   const removedIds = [];
+  // Richer detail for the summary panel: id + name + why it was dropped
+  const removedDetails = [];
 
   for (const inputMod of modsToProcess) {
     const modId = String(inputMod.id);
@@ -159,6 +178,11 @@ async function buildCuratedList() {
       if (!modData || !modData.name) {
         console.log(`[Mod ${modId}] REMOVED: API returned no data (404/Deleted).`);
         removedIds.push(modId); // Track ID
+        removedDetails.push({
+          id: modId,
+          name: inputMod.name || '(unknown name)',
+          reason: 'No data returned (404 / deleted)'
+        });
         return null;
       }
 
@@ -166,6 +190,11 @@ async function buildCuratedList() {
       if (modData.status !== "published") {
         console.log(`[Mod ${modId}] REMOVED: Status is '${modData.status}'.`);
         removedIds.push(modId);
+        removedDetails.push({
+          id: modId,
+          name: modData.name || inputMod.name || '(unknown name)',
+          reason: `Status is '${modData.status}'`
+        });
         return null;
       }
 
@@ -267,9 +296,47 @@ async function buildCuratedList() {
   }
 
   console.log("================================================");
+
+  // 8. GitHub Actions run summary (shown under the run, not in the logs)
+  let summary = `## Curated Mod List Update\n\n`;
+  summary += `| | |\n|---|---|\n`;
+  summary += `| **Total tracked IDs** | ${totalProcessed} |\n`;
+  summary += `| **Valid mods saved** | ${validCount} |\n`;
+  summary += `| **Mods removed/hidden** | ${removedIds.length} |\n`;
+  summary += `| **Fresh fetches** | ${modsToFetch.length} |\n`;
+  summary += `| **API calls used** | ${apiCallCount} |\n`;
+  summary += `| **File changed** | ${needsWrite ? 'Yes' : 'No — content identical'} |\n\n`;
+
+  if (removedDetails.length > 0) {
+    summary += `### ⚠️ Mods to remove from \`mod_source.json\` (${removedDetails.length})\n\n`;
+    summary += `These IDs are tracked but no longer valid on Nexus:\n\n`;
+    summary += `| Mod ID | Name | Reason |\n|---|---|---|\n`;
+    removedDetails
+      .sort((a, b) => Number(a.id) - Number(b.id))
+      .forEach(m => {
+        const safeName = String(m.name).replace(/\|/g, '\\|');
+        summary += `| \`${m.id}\` | ${safeName} | ${m.reason} |\n`;
+      });
+    summary += `\n<details>\n<summary>Copy-paste list of IDs</summary>\n\n`;
+    summary += `\`\`\`json\n${JSON.stringify(removedIds)}\n\`\`\`\n\n</details>\n`;
+  } else {
+    summary += `### ✅ No invalid mods found\n\nEvery tracked ID is still published on Nexus.\n`;
+  }
+
+  await writeStepSummary(summary);
 }
 
-buildCuratedList().catch(error => {
+buildCuratedList().catch(async (error) => {
   console.error("Script failed:", error);
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    try {
+      await fs.appendFile(
+        summaryPath,
+        `## ❌ Curated list update failed\n\n\`\`\`\n${error.message}\n\`\`\`\n`,
+        'utf8'
+      );
+    } catch (e) { }
+  }
   process.exit(1);
 });
