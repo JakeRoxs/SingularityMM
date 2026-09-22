@@ -39,30 +39,26 @@ const REPEAT_INITIAL_MS = 250;
 const REPEAT_INTERVAL_MS = 100;
 
 export class GamepadManager {
+  connected = false;
+  gamepadIndex = null;
+  inputMode = 'mouse';
+  polling = false;
+
+  sections = [];
+  currentSectionIndex = 0;
+  currentItemIndex = 0;
+  focusedElement = null;
+
+  focusStack = [];
+
+  buttonState = {};
+
+  promptBar = null;
+  promptConfigs = {};
+
+  mouseTimer = null;
+
   constructor() {
-    this.connected = false;
-    this.gamepadIndex = null;
-    this.inputMode = 'mouse'; // 'mouse' | 'gamepad'
-    this.polling = false;
-    this.lastTimestamp = 0;
-
-    // Focus state
-    this.sections = [];
-    this.currentSectionIndex = 0;
-    this.currentItemIndex = 0;
-    this.focusedElement = null;
-
-    // Modal focus stack
-    this.focusStack = [];
-
-    // Button repeat tracking
-    this.buttonState = {};
-    this.axisState = { x: 0, y: 0 };
-
-    // Prompt bar element references
-    this.promptBar = null;
-    this.promptConfigs = {};
-
     this._onGamepadConnected = this._onGamepadConnected.bind(this);
     this._onGamepadDisconnected = this._onGamepadDisconnected.bind(this);
     this._onMouseMove = this._onMouseMove.bind(this);
@@ -78,11 +74,13 @@ export class GamepadManager {
     this._buildPromptBar();
 
     // Check if gamepad is already connected (e.g., page reload)
-    const gamepads = navigator.getGamepads();
-    for (let i = 0; i < gamepads.length; i++) {
-      if (gamepads[i]) {
-        this._onGamepadConnected({ gamepad: gamepads[i] });
-        break;
+    if (typeof navigator.getGamepads === 'function') {
+      const gamepads = navigator.getGamepads();
+      for (const gamepad of gamepads) {
+        if (gamepad) {
+          this._onGamepadConnected({ gamepad });
+          break;
+        }
       }
     }
   }
@@ -91,6 +89,7 @@ export class GamepadManager {
     window.removeEventListener('gamepadconnected', this._onGamepadConnected);
     window.removeEventListener('gamepaddisconnected', this._onGamepadDisconnected);
     window.removeEventListener('mousemove', this._onMouseMove);
+    if (this.mouseTimer) clearTimeout(this.mouseTimer);
     this.polling = false;
     this._clearFocus();
   }
@@ -252,7 +251,11 @@ export class GamepadManager {
   }
 
   _onMouseMove() {
-    this._switchToMouse();
+    // Debounce: only switch to mouse mode after sustained mouse activity
+    if (this.mouseTimer) clearTimeout(this.mouseTimer);
+    this.mouseTimer = setTimeout(() => {
+      this._switchToMouse();
+    }, 300);
   }
 
   // --- Gamepad Connection ---
@@ -283,7 +286,8 @@ export class GamepadManager {
     if (!this.polling || !this.connected) return;
     requestAnimationFrame(this._poll);
 
-    const gp = navigator.getGamepads()[this.gamepadIndex];
+    const gamepads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : [];
+    const gp = gamepads[this.gamepadIndex];
     if (!gp) return;
 
     // Process buttons
